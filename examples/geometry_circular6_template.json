@@ -1,0 +1,44 @@
+{
+  "mics_m": [
+    [
+      0.05,
+      0.0,
+      0.0
+    ],
+    [
+      0.025,
+      0.0433,
+      0.0
+    ],
+    [
+      -0.025,
+      0.0433,
+      0.0
+    ],
+    [
+      -0.05,
+      0.0,
+      0.0
+    ],
+    [
+      -0.025,
+      -0.0433,
+      0.0
+    ],
+    [
+      0.025,
+      -0.0433,
+      0.0
+    ]
+  ],
+  "channels": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+  ],
+  "heading_deg": 0.0,
+  "note": "TEMPLATE for a 6-mic circular USB array. Replace radius (0.05 m here), mic-0 angle, the channel map (many boards put raw mics on channels 1-6 and a processed mix on 0) and heading with values you measure on your own board. Add pa_per_full_scale only after calibrating with an SPL meter or a calibrator."
+}

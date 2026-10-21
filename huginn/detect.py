@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from scipy.ndimage import maximum_filter1d, median_filter
+from scipy.stats import gamma
 
 from .scenario import P_REF
 
@@ -35,13 +36,16 @@ class HarmonicDetector:
     freqs: np.ndarray
     f0_range: tuple[float, float] = (180.0, 700.0)
     n_harmonics: int = 8
-    hit_db: float = 3.0
+    n_channels: int = 9        # spectra averaged per bin; sets hit_db unless given explicitly
+    hit_db: float | None = None
     min_hits: int = 5
     band_hz: tuple[float, float] = (300.0, 4000.0)
     rpm_spread: float = 0.025  # rotors are a few % apart, so allow wider windows up the series
     floor_bins: int = 41
 
     def __post_init__(self):
+        if self.hit_db is None:
+            self.hit_db = hit_threshold_db(self.n_channels)
         df = self.freqs[1] - self.freqs[0]
         self._df = df
         self._f0 = np.arange(*self.f0_range, 1.0)
@@ -146,6 +150,19 @@ def tonal_level_db(X: np.ndarray, mask: np.ndarray, window: np.ndarray) -> float
     e = np.mean(np.sum(np.abs(X[..., mask]) ** 2, axis=-1))
     ms = 2.0 * e / (window.size * np.sum(window**2))
     return float(10 * np.log10(ms / P_REF**2 + 1e-30))
+
+
+def hit_threshold_db(n_channels: int, ref_db: float = 3.0, ref_channels: int = 9, p: float = 0.01) -> float:
+    """Per-harmonic SNR threshold for a spectrum averaged over `n_channels` mics.
+
+    Noise power averaged over M independent channels is Gamma(M)-distributed, so its
+    spread shrinks with M. The 3 dB threshold tuned on the 9-mic array is a ~1% per-bin
+    exceedance over the median floor; other channel counts get the same exceedance.
+    One mic needs ~8 dB: at 3 dB a phone recording "detects" pure noise in >99% of frames.
+    """
+    def t(m):
+        return 10 * np.log10(gamma.ppf(1 - p, m, scale=1 / m) / gamma.median(m, scale=1 / m))
+    return float(ref_db + t(max(1, n_channels)) - t(ref_channels))
 
 
 def fold_f0(f_hz: float, lo: float = 200.0) -> float:

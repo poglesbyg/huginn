@@ -56,7 +56,7 @@ class SwarmNode:
         self.fs, self.frame, self.hop = fs, frame, hop
         self.window = np.hanning(frame)
         self.freqs = np.fft.rfftfreq(frame, 1.0 / fs)
-        self.detector = HarmonicDetector(self.freqs)
+        self.detector = HarmonicDetector(self.freqs, n_channels=len(mics))
         self.doa = SrpPhat(mics, self.freqs)
         self.centre = mics.mean(axis=0)
         self.max_targets = max_targets

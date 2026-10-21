@@ -1,0 +1,21 @@
+{
+  "file": "samples/sim_flyby.wav",
+  "seconds": 9.84,
+  "channels_used": 9,
+  "array": {
+    "mics": 9,
+    "aperture_m": 0.5,
+    "min_spacing_m": 0.191,
+    "spatial_alias_above_hz": 896,
+    "beamwidth_at_1khz_deg": 39.3,
+    "planar": false
+  },
+  "mode": "single-target",
+  "detection_rate": 0.908,
+  "confirmed_rate": 0.882,
+  "bearing_err_vs_truth_deg": {
+    "median": 0.39,
+    "p90": 1.53,
+    "n": 278
+  }
+}

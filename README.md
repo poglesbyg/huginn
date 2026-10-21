@@ -153,6 +153,27 @@ FPVs from one 60° threat sector, staggered 250–380 m out, at 20–40 m/s with
 - Swarm mode for two nodes on one CPU runs at about 0.5–0.7× real time. A single node runs at about 2× real
   time with 5 drones (6 ms per 32 ms hop, p99 17 ms). On real hardware each node has its own processor.
 
+## Real recordings (`scripts/replay.py`)
+
+The same pipeline runs on real audio. [docs/RECORDING.md](docs/RECORDING.md) covers gear, settings, array
+geometry, a flight plan and ground truth.
+
+- **Input formats:** a multichannel WAV (16/24/32-bit or float, any rate; resampled to 16 kHz) plus a small JSON
+  file with mic positions, a channel map, the array heading and an optional pascal calibration. Or a mono or
+  stereo file for detection only.
+- **Output:** a figure, per-frame telemetry as CSV (state, bearing, compass bearing, led cue, cone, range,
+  handoff) and a JSON summary. With a truth CSV it also reports bearing error. It prints the array's aperture,
+  spatial-alias frequency and beamwidth, so a bad geometry file is obvious.
+- **Try it without hardware:** `scripts/make_sample_recording.py` writes a simulated flyby to disk as a 48 kHz,
+  16-bit, 9-channel WAV. Replaying it gives a 0.39° median bearing error against truth, the same as running the
+  simulator in memory. That confirms loading, channel mapping, scaling and resampling are lossless.
+- **Bug this caught:** the per-harmonic threshold was tuned on a 9-mic power average. On a single phone channel
+  it "detected" pure noise in 99.5% of frames. The threshold now follows the noise statistics: power averaged
+  over M mics is Gamma(M), so every M gets the same ~1% per-bin exceedance. That keeps 3.0 dB for 9 mics and
+  gives ~8.2 dB for one. Mono false alarms dropped to 0.2% of frames, the same as the array's.
+
+![replay](out/replay_sim_flyby.png)
+
 ## Layout
 
 ```
@@ -167,16 +188,22 @@ huginn/
   fusion.py     ray triangulation with calibrated sigma, two-node system
   swarm.py      peel-off combs, per-comb SRP, track-guided beam re-detection, GNN multi-target
                 tracker with pitch fingerprints, cross-node association
+  recording.py  WAV loading (channel map, calibration, resampling), mic-geometry JSON
   metrics.py    scoring against acoustic truth and physical truth
 scripts/
   demo.py       one engagement, both modes -> out/demo.png, out/demo_metrics.json
   evaluate.py   paired 1-node vs 2-node Monte Carlo + clutter-only runs -> out/evaluation.*
   calibrate.py  fits sigma_scale and the source-level prior from simulated truth
   swarm_demo.py      4-drone raid -> out/swarm_demo.png
+  replay.py          real recordings -> out/replay_<name>.png/.csv/.json
+  make_sample_recording.py  simulated flyby written as hardware-style WAV + geometry + truth
+docs/RECORDING.md  how to record a drone for Huginn
+examples/          mic-geometry template
   evaluate_swarm.py  resolution map + raids of 1/2/3/5 -> out/swarm_resolution.png, swarm_evaluation.json
 tests/          DOA accuracy, clutter rejection, inverse-square level, tracker gating, az wrap,
                 triangulation geometry/rejection/sigma coverage, range fusion, two-node end-to-end,
-                multi-comb detection, pitch-only separation inside one beamwidth, identity through a crossing
+                multi-comb detection, pitch-only separation inside one beamwidth, identity through a crossing,
+                WAV loading/scaling/resampling, geometry files, mono false alarms, replay end-to-end
 ```
 
 ```bash
@@ -194,8 +221,8 @@ synchronised clocks; in the field, that means GPS-disciplined clocks.
 
 - **It's a simulation.** The propagation physics is real, but there is no ground reflection, terrain, turbulence,
   rotor directivity, or mic mismatch. Real-world performance will be lower until it's calibrated on recorded data.
-  The first thing I'd do with real hardware is replay range recordings through this same `Pipeline` and refit
-  `calibrate.py`.
+  The replay path for real recordings is built (`scripts/replay.py`, `docs/RECORDING.md`); the next step is
+  recording a real quad, then refitting `calibrate.py` on that data.
 - **Swarms:** see the swarm section above. Tight formations (under ~6° and under ~6% pitch) are not separable by
   one small array, track fragmentation is high, and swarm mode has a ~1/s false-track floor on a single drone.
 - **Inter-node timing skew.** The two nodes hear the drone at emission times |r_A − r_B|/c apart. That skew is

@@ -28,7 +28,7 @@ class Pipeline:
         self._recent: list[np.ndarray] = []
         self.window = np.hanning(frame).astype(np.float64)
         self.freqs = np.fft.rfftfreq(frame, 1.0 / fs)
-        self.detector = HarmonicDetector(self.freqs)
+        self.detector = HarmonicDetector(self.freqs, n_channels=len(mics) * integrate)
         self.doa = SrpPhat(mics, self.freqs)
         self.tracker = BearingTracker(tracker_cfg or TrackerConfig())
 

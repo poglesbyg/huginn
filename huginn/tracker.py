@@ -64,6 +64,7 @@ class TrackerConfig:
     max_target_accel: float = 30.0    # m/s^2 (~3 g) lateral manoeuvre during the lead interval
     source_level_db: float = 83.5     # effective detected tonal SPL at 1 m (scripts/calibrate.py)
     source_level_sigma_db: float = 4.0  # airframe-to-airframe spread
+    use_level_range: bool = True      # off for recordings without a pascal calibration
     range_smoothing: float = 0.25     # EMA weight on each new level-based log-range
     log_range_walk: float = 0.3       # log10(m)/sqrt(s), random walk of the triangulated range
     tri_timeout_s: float = 0.5        # drop the triangulated estimate if no fix this long
@@ -159,7 +160,7 @@ class BearingTracker:
         return float(np.sum(w * [m for m, _ in est]) / w.sum()), float(np.sqrt(1 / w.sum()))
 
     def _update_range(self, level_db):
-        if level_db is None or not np.isfinite(level_db):
+        if not self.cfg.use_level_range or level_db is None or not np.isfinite(level_db):
             return
         # Spherical spreading: L(r) = SL - 20 log10(r). Absorption is small inside 300 m.
         lr = np.clip((self.cfg.source_level_db - level_db) / 20.0, 0.0, 3.0)
