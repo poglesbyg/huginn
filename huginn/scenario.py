@@ -74,16 +74,17 @@ class TonalSource:
     broadband_db_1m: float | None = None  # optional broadband component
     wander: float = 0.0                   # relative RPM wander (throttle changes)
     wander_timescale: float = 1.5
+    t_off: float = np.inf                 # source stops emitting (impact) at this time
 
 
-def fpv_quad(trajectory: Trajectory, rotor_hz=260.0, level_db_1m=86.0) -> TonalSource:
+def fpv_quad(trajectory: Trajectory, rotor_hz=260.0, level_db_1m=86.0, t_off=np.inf) -> TonalSource:
     """5-inch class quad: 4 rotors a few % apart, 2-blade props, so even
     harmonics (blade-pass family) dominate the shaft-rate odd harmonics."""
     k = np.arange(1, 17)
     weights = np.where(k % 2 == 0, 1.0, 0.35) / k**0.6
     spread = [-0.018, -0.006, 0.007, 0.016]
     return TonalSource(trajectory, [rotor_hz * (1 + s) for s in spread], weights, level_db_1m,
-                       broadband_db_1m=level_db_1m - 8, wander=0.04)
+                       broadband_db_1m=level_db_1m - 8, wander=0.04, t_off=t_off)
 
 
 def generator(position, duration, level_db_1m=80.0, mains_hz=60.0) -> TonalSource:
@@ -150,14 +151,16 @@ def _render_source(src: TonalSource, scene: Scene, t: np.ndarray, rng) -> np.nda
     out = np.zeros((len(scene.mics), t.size))
     for m, mic in enumerate(scene.mics):
         te, r = _emission_times(src.trajectory, mic, t)
+        # Fade over 20 ms at t_off rather than hard-cutting, to avoid a broadband click.
+        on = np.clip((src.t_off - te) / 0.02, 0.0, 1.0) if np.isfinite(src.t_off) else 1.0
         for v in range(n_voices):
             ph = np.interp(te, tg, voice_phase[v])
             f_inst = np.interp(te, tg, voice_freq[v])
             for k in range(1, K + 1):
-                atten = 10 ** (-absorption_db_per_m(k * f_inst) * r / 20) / r
+                atten = on * 10 ** (-absorption_db_per_m(k * f_inst) * r / 20) / r
                 out[m] += amps[k - 1] * atten * np.sin(k * ph + offsets[v, k - 1])
         if broadband is not None:
-            out[m] += np.interp(te, tg, broadband) * 10 ** (-absorption_db_per_m(2000) * r / 20) / r
+            out[m] += on * np.interp(te, tg, broadband) * 10 ** (-absorption_db_per_m(2000) * r / 20) / r
     return out
 
 
@@ -183,3 +186,33 @@ def acoustic_truth(traj: Trajectory, t: np.ndarray, origin=np.zeros(3)):
     plus where it *is* at t. The gap between the two is the acoustic lag."""
     te, _ = _emission_times(traj, origin, np.asarray(t, dtype=float))
     return traj.pos(te) - origin, traj.pos(t) - origin
+
+
+@dataclass
+class Raider:
+    trajectory: Trajectory
+    rotor_hz: float
+    level_db_1m: float
+
+    def source(self) -> "TonalSource":
+        return fpv_quad(self.trajectory, self.rotor_hz, self.level_db_1m, t_off=self.t_end)
+
+    @property
+    def t_end(self) -> float:
+        """Arrival time; after this the airframe would have impacted."""
+        return float(self.trajectory.times[-1])
+
+
+def swarm_raid(n: int, rng: np.random.Generator, sector_deg: float = 60.0) -> list[Raider]:
+    """n FPVs from one threat sector, staggered in range, each with its own airframe
+    (rotor rate, loudness) and its own terminal aim point near the defended site."""
+    centre = rng.uniform(0, 360)
+    out = []
+    for _ in range(n):
+        end = np.array([rng.uniform(-15, 15), rng.uniform(-15, 15), rng.uniform(1, 5)])
+        traj = inbound_fpv(start_range=rng.uniform(250, 380),
+                           az_deg=centre + rng.uniform(-sector_deg / 2, sector_deg / 2),
+                           alt=rng.uniform(15, 60), speed=rng.uniform(20, 40),
+                           weave_amp=rng.uniform(0, 25), weave_period=rng.uniform(3, 7), end_point=end)
+        out.append(Raider(traj, rotor_hz=rng.uniform(200, 320), level_db_1m=rng.normal(86, 3)))
+    return out

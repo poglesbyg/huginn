@@ -31,7 +31,7 @@ def _grid(az_range, el_range, step):
 
 class SrpPhat:
     def __init__(self, mics: np.ndarray, freqs: np.ndarray, coarse_step=3.0, fine_step=0.25,
-                 el_range=(-10.0, 85.0), sigma_scale=3.8, sigma_floor=0.15):
+                 el_range=(-10.0, 85.0), sigma_scale=3.8, sigma_floor=0.15, cache_hz=4100.0):
         self.mics = mics - mics.mean(axis=0)
         self.freqs = freqs
         self.fine_step = fine_step
@@ -41,6 +41,11 @@ class SrpPhat:
         self.sigma_floor = sigma_floor
         self._caz, self._cel = _grid((0.0, 360.0), el_range, coarse_step)
         self._ctau = self._delays(self._caz, self._cel)
+        # Coarse steering phases for every bin up to cache_hz, computed once. The complex
+        # exponential dominated runtime; with a swarm there is one SRP per airframe per frame.
+        nb = int(np.searchsorted(freqs, cache_hz, side="right"))
+        self._cached_bins = nb
+        self._csteer = np.exp(-2j * np.pi * self._ctau[:, :, None] * freqs[None, None, :nb]).astype(np.complex64)
 
     def _delays(self, az, el):
         # A plane wave from direction u reaches mic m earlier by (u . r_m) / c.
@@ -50,6 +55,13 @@ class SrpPhat:
         steer = np.exp(-2j * np.pi * tau[:, :, None] * f[None, None, :])  # (D, M, F)
         beam = np.einsum("dmf,mf->df", steer, Y)
         return np.sum(np.abs(beam) ** 2, axis=1) / (Y.shape[0] ** 2 * Y.shape[1])
+
+    def beam_power(self, X: np.ndarray, az: float, el: float) -> np.ndarray:
+        """Delay-and-sum beam power spectrum steered at (az, el): coherent gain of up to
+        10 log10(M) dB over the array-averaged spectrum for a source in the beam."""
+        tau = self._delays(np.array([az]), np.array([el]))[0]
+        steer = np.exp(-2j * np.pi * np.outer(tau, self.freqs))
+        return np.abs(np.sum(X * steer, axis=0)) ** 2 / X.shape[0] ** 2
 
     def __call__(self, X: np.ndarray, mask: np.ndarray, snr_db: np.ndarray) -> DoaEstimate | None:
         """X is (M, F) or a stack of snapshots (N, M, F) sharing one bin mask."""
@@ -61,7 +73,13 @@ class SrpPhat:
         Y = Y / (np.abs(Y) + 1e-20)
         f = np.tile(self.freqs[mask], n_snap)
 
-        p = self._srp(Y, f, self._ctau)
+        idx = np.flatnonzero(mask)
+        if idx[-1] < self._cached_bins:
+            steer = self._csteer[:, :, np.tile(idx, n_snap)]
+            beam = np.einsum("dmf,mf->df", steer, Y.astype(np.complex64))
+            p = np.sum(np.abs(beam) ** 2, axis=1) / (Y.shape[0] ** 2 * Y.shape[1])
+        else:
+            p = self._srp(Y, f, self._ctau)
         i = int(np.argmax(p))
         az0, el0 = self._caz[i], self._cel[i]
 

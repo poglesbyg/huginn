@@ -1,0 +1,13 @@
+{
+  "n_drones": 4,
+  "coverage": 0.475,
+  "false_track_frames_per_s": 2.784,
+  "id_switches": 80,
+  "mota": 0.36,
+  "drones_ever_tracked": 4,
+  "first_confirmed_range_m_median": 241.569,
+  "cue_err_median_deg": 3.351,
+  "range_err_median_pct": 13.443,
+  "handoff_containment": 0.794,
+  "real_time_factor": 0.427
+}

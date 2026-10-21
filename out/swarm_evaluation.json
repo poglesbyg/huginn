@@ -1,0 +1,111 @@
+{
+  "resolution_map": {
+    "separation_deg": [
+      0,
+      3,
+      6,
+      10,
+      20,
+      40
+    ],
+    "pitch_diff_pct": [
+      0,
+      3,
+      6,
+      10,
+      15
+    ],
+    "p_both_resolved": [
+      [
+        0.196,
+        0.065,
+        0.12,
+        0.63,
+        0.891,
+        0.87
+      ],
+      [
+        0.315,
+        0.326,
+        0.293,
+        0.815,
+        0.957,
+        0.87
+      ],
+      [
+        0.554,
+        0.565,
+        0.554,
+        0.783,
+        1.0,
+        0.957
+      ],
+      [
+        0.848,
+        0.815,
+        0.598,
+        0.859,
+        0.946,
+        0.859
+      ],
+      [
+        0.978,
+        0.957,
+        0.696,
+        0.761,
+        0.935,
+        0.88
+      ]
+    ]
+  },
+  "raids_two_node": {
+    "1": {
+      "coverage": 0.8,
+      "coverage_within_100m": 0.88,
+      "mota": 0.736,
+      "false_track_frames_per_s": 0.967,
+      "cue_err_median_deg": 2.065,
+      "range_err_median_pct": 25.709,
+      "handoff_containment": 0.89,
+      "real_time_factor": 0.671,
+      "id_switches_per_drone_minute": 5.64,
+      "drones_ever_tracked": "4/4"
+    },
+    "2": {
+      "coverage": 0.579,
+      "coverage_within_100m": 0.751,
+      "mota": 0.502,
+      "false_track_frames_per_s": 1.462,
+      "cue_err_median_deg": 1.95,
+      "range_err_median_pct": 15.266,
+      "handoff_containment": 0.923,
+      "real_time_factor": 0.587,
+      "id_switches_per_drone_minute": 23.98,
+      "drones_ever_tracked": "8/8"
+    },
+    "3": {
+      "coverage": 0.58,
+      "coverage_within_100m": 0.713,
+      "mota": 0.443,
+      "false_track_frames_per_s": 1.921,
+      "cue_err_median_deg": 1.837,
+      "range_err_median_pct": 14.253,
+      "handoff_containment": 0.913,
+      "real_time_factor": 0.567,
+      "id_switches_per_drone_minute": 44.12,
+      "drones_ever_tracked": "12/12"
+    },
+    "5": {
+      "coverage": 0.345,
+      "coverage_within_100m": 0.482,
+      "mota": 0.298,
+      "false_track_frames_per_s": 1.623,
+      "cue_err_median_deg": 2.038,
+      "range_err_median_pct": 20.23,
+      "handoff_containment": 0.851,
+      "real_time_factor": 0.532,
+      "id_switches_per_drone_minute": 25.87,
+      "drones_ever_tracked": "20/20"
+    }
+  }
+}

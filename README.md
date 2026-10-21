@@ -5,7 +5,8 @@
 Huginn is a small, working model of the first stage of a counter-FPV kill chain. It hears a drone, finds its
 direction, holds a track on it, and hands a pointing cue to a fine (visual) tracker. It uses no RF, emits
 nothing, and has no line-of-sight requirement until handoff. A second node 50 m away triangulates range, so
-the cue can correct for the fact that sound arrives late.
+the cue can correct for the fact that sound arrives late. **Swarm mode** tracks several drones at once,
+separating them by rotor pitch when the array is too small to separate them by angle.
 
 The design follows the shape of the problem 9 Mothers describes publicly: a passive acoustic sensor gives a
 coarse track, then hands off to fine tracking, and nodes are networked into a grid. Here, everything upstream
@@ -50,7 +51,7 @@ alone, and node A fused with node B (B is 50 m away).
 | Raw bearing error, median per run | 0.40° [0.34, 0.45] | same |
 | Gross bearing errors (>5°) | 0.1% [0, 2.1] | same |
 | Frames with a valid triangulation fix | — | 90% [79, 95] |
-| Real-time factor at p99 compute | 1.8× | 1.0× (both nodes on one CPU) |
+| Real-time factor at p99 compute (demo engagement, with cached steering tables) | 4.8× | 2.6× (both nodes on one CPU) |
 
 **What triangulation bought:** a range estimate that is roughly 3× better, with a far tighter worst case
 (p90 of 18% vs 53%). That lets the cone shrink honestly, so handoff happens **25 m earlier in the median and
@@ -83,6 +84,75 @@ shows the two-node cue.
 | Range estimate error | 29% | 13% |
 | Handoff containment | 98% | 96% |
 
+## Swarm mode (`huginn/swarm.py`)
+
+One-way-attack FPVs come in groups, and a 0.5 m array cannot separate them by angle: its beam is tens of degrees
+wide. Every airframe has its own rotor rate, though, so separation is **spectral first, spatial second**:
+
+1. **Peel-off comb detection.** Find the strongest harmonic comb, blank its multiples, and search again. Blanking
+   is narrow on purpose, because a wide blank erases other drones' upper harmonics. If a candidate comb is
+   unusable, it is blanked and the search continues, so a loud drone's leftover rotor lines can't hide a quieter
+   drone. (That exact bug hid a drone 44 m away during development.)
+2. **One beamformer pass per comb.** Each drone's bins go to SRP-PHAT separately, so each drone gets its own
+   bearing even when the drones are inside one beamwidth.
+3. **Merge by direction and pitch.** One quad's four rotors drift apart while it manoeuvres and can come back as
+   two combs. Pitch is octave-folded, so shaft-rate and blade-pass picks compare equal.
+4. **Track-guided beam re-detection.** For each confirmed track that the comb search missed, steer a
+   delay-and-sum beam at its predicted direction. That gives up to +9.5 dB of coherent gain with 9 mics. Then
+   look for a comb near the track's pitch. A beam also hears loud drones through its sidelobes, so the found comb
+   is localised over the **whole sky** and accepted only if it really comes from inside the beam. An earlier
+   cone-restricted version let tracks "walk" off along the cone edge; it was caught and removed.
+5. **Multi-target tracker.** Global-nearest-neighbour assignment (Hungarian) on bearing (Mahalanobis distance)
+   plus a pitch-fingerprint term, with per-track M-of-N confirmation, coasting and duplicate pruning.
+6. **Per-drone triangulation.** Node A's fixes are paired with node B's confirmed tracks on pitch and on how
+   well the two bearing rays cross.
+
+Scoring is CLEAR-MOT against truth: coverage, false tracks, ID switches and MOTA. It uses the standard
+rule of keeping last frame's correspondence while it is still valid. Drones are silenced at impact, so a
+"finished" drone can't linger as clutter.
+
+### What one array can resolve
+
+Two drones hovering 80 m out, swept over angular separation and rotor-pitch difference
+(`scripts/evaluate_swarm.py`):
+
+![resolution](out/swarm_resolution.png)
+
+- **≥10° apart:** resolved most of the time at any pitch difference. Angle does the work.
+- **Same direction (0–3°):** pitch alone separates them, at 82–98% when pitches differ by 10–15%. This is the
+  case angle-only processing cannot handle at all.
+- **Under 6° and under 6% pitch difference:** not reliably separable (7–57%). With a 1024-point FFT
+  (15.6 Hz bins) and four rotors per quad wandering a few percent, these drones are effectively one source to
+  one small array. Fixing this needs a second node's geometry or a longer aperture, not more tuning.
+- There is a dip around 6° even when pitches differ. The two fixes are close enough to sit on the edge of the
+  merge rule, and I'd look there next.
+
+### Raids (two nodes, 4 seeds per size)
+
+FPVs from one 60° threat sector, staggered 250–380 m out, at 20–40 m/s with weave. Rotor rates are random in
+200–320 Hz, so close pitches happen. There is also a generator, wind and ambient noise. Medians across seeds:
+
+| Drones | Coverage ≤200 m | Coverage ≤100 m | MOTA | ID switches / drone-min | False-track frames/s | Range err | Containment | All drones ever tracked |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 80% | 88% | 0.74 | 5.6 | 1.0 | 26% | 89% | 4/4 |
+| 2 | 58% | 75% | 0.50 | 24 | 1.5 | 15% | 92% | 8/8 |
+| 3 | 58% | 71% | 0.44 | 44 | 1.9 | 14% | 91% | 12/12 |
+| 5 | 35% | 48% | 0.30 | 26 | 1.6 | 20% | 85% | 20/20 |
+
+**How to read this:**
+- Every drone in every raid was detected and confirmed at some point (44/44).
+- Holding all of them at once degrades as the formation tightens, because drones from one sector are often
+  inside the unresolvable corner of the map above.
+- Bearing and cue accuracy per tracked drone hold up (about 2° median), and so does handoff containment
+  (85–92%).
+- The weak spots are fragmentation (ID switches) and continuity on the farther drones.
+- **Regression vs. single-target mode:** on one drone, swarm mode produces about 1 false-track frame/s. The
+  single-target pipeline produces none, because its one-track design can't spawn a second track. Those false
+  tracks come from split rotor combs that miss the merge rule. Use single-target mode when you know there is
+  one threat.
+- Swarm mode for two nodes on one CPU runs at about 0.5–0.7× real time. A single node runs at about 2× real
+  time with 5 drones (6 ms per 32 ms hop, p99 17 ms). On real hardware each node has its own processor.
+
 ## Layout
 
 ```
@@ -95,13 +165,18 @@ huginn/
                 lag-compensated Cue with manoeuvre-aware cone
   pipeline.py   per-node frame loop: measure (detect -> localise -> level) then track -> cue
   fusion.py     ray triangulation with calibrated sigma, two-node system
+  swarm.py      peel-off combs, per-comb SRP, track-guided beam re-detection, GNN multi-target
+                tracker with pitch fingerprints, cross-node association
   metrics.py    scoring against acoustic truth and physical truth
 scripts/
   demo.py       one engagement, both modes -> out/demo.png, out/demo_metrics.json
   evaluate.py   paired 1-node vs 2-node Monte Carlo + clutter-only runs -> out/evaluation.*
   calibrate.py  fits sigma_scale and the source-level prior from simulated truth
+  swarm_demo.py      4-drone raid -> out/swarm_demo.png
+  evaluate_swarm.py  resolution map + raids of 1/2/3/5 -> out/swarm_resolution.png, swarm_evaluation.json
 tests/          DOA accuracy, clutter rejection, inverse-square level, tracker gating, az wrap,
-                triangulation geometry/rejection/sigma coverage, range fusion, two-node end-to-end
+                triangulation geometry/rejection/sigma coverage, range fusion, two-node end-to-end,
+                multi-comb detection, pitch-only separation inside one beamwidth, identity through a crossing
 ```
 
 ```bash
@@ -121,9 +196,8 @@ synchronised clocks; in the field, that means GPS-disciplined clocks.
   rotor directivity, or mic mismatch. Real-world performance will be lower until it's calibrated on recorded data.
   The first thing I'd do with real hardware is replay range recordings through this same `Pipeline` and refit
   `calibrate.py`.
-- **Single target.** Each node holds one track, and fusion assumes both nodes are tracking the same drone. A
-  ray-miss gate rejects gross mismatches, but swarms need proper cross-node association (for example, matching
-  combs by fundamental frequency, which is a strong fingerprint per airframe) and a peel-off beamformer.
+- **Swarms:** see the swarm section above. Tight formations (under ~6° and under ~6% pitch) are not separable by
+  one small array, track fragmentation is high, and swarm mode has a ~1/s false-track floor on a single drone.
 - **Inter-node timing skew.** The two nodes hear the drone at emission times |r_A − r_B|/c apart. That skew is
   currently absorbed into σ, not corrected; correcting it is iterative and cheap. Range error rises inside
   ~30 m, where skew and near-field effects dominate.
@@ -139,11 +213,12 @@ synchronised clocks; in the field, that means GPS-disciplined clocks.
 
 1. **Pointing accuracy is now the bottleneck, not range.** An IMM or manoeuvre-adaptive filter, plus using
    Doppler on the rotor comb as a radial-velocity observable, to tighten angular rate.
-2. **N-node grid.** Generalise `fusion.py` to least-squares over any number of rays, with per-node clock-offset
-   estimation and cross-node comb association. This is the networked-grid direction 9 Mothers has published.
+2. **Swarm robustness.** Use a longer FFT (or zoom FFT) on the pitch fingerprint only, to separate airframes
+   2–3% apart. Use track-before-detect for far drones, and N-node least-squares localisation so geometry, not
+   pitch, separates tight formations. This is the networked-grid direction 9 Mothers has published.
 3. **Learned detector head.** Swap the comb score for a small CNN on the whitened spectrogram, trained on this
    simulator plus range recordings. Keep the comb as the explainable fallback and as a label generator.
-4. **C++/embedded port** of `detect` + `doa` with precomputed steering tables. One node already runs at ~1.8×
-   real time at p99 in numpy, and the hot loop is a single einsum.
+4. **C++/embedded port** of `detect` + `doa`. With precomputed steering tables, one node already runs at
+   ~4.8× real time at p99 in numpy, and the hot loop is a single einsum.
 5. **Closed loop with the gimbal.** Feed `Cue.lead_*` into a slew-rate-limited mount model and measure time
    from first detection to camera-on-target.

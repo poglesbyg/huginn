@@ -10,9 +10,9 @@
     "track_vs_physical_err_p90_deg": 6.098,
     "handoff_containment": 0.976,
     "range_est_err_median_pct": 29.092,
-    "compute_ms_mean": 5.005,
-    "compute_ms_p99": 17.133,
-    "real_time_factor": 1.868
+    "compute_ms_mean": 2.08,
+    "compute_ms_p99": 6.718,
+    "real_time_factor": 4.763
   },
   "two_node": {
     "sustained_detection_range_m": 211.347,
@@ -25,8 +25,8 @@
     "track_vs_physical_err_p90_deg": 5.792,
     "handoff_containment": 0.964,
     "range_est_err_median_pct": 12.591,
-    "compute_ms_mean": 10.023,
-    "compute_ms_p99": 31.932,
-    "real_time_factor": 1.002
+    "compute_ms_mean": 4.182,
+    "compute_ms_p99": 12.451,
+    "real_time_factor": 2.57
   }
 }

@@ -47,6 +47,8 @@ class Cue:
     lag_resid_deg: float = np.nan    # lead error bound: range uncertainty + manoeuvre during lead
     cone_deg: float = np.nan         # half-angle the fine sensor should search
     handoff_ready: bool = False
+    track_id: int = -1
+    f0_hz: float = np.nan            # rotor-comb fingerprint (octave-folded), multi-target only
 
 
 @dataclass
@@ -71,11 +73,14 @@ class TrackerConfig:
 class BearingTracker:
     cfg: TrackerConfig = field(default_factory=TrackerConfig)
 
+    track_id: int = -1
+
     def __post_init__(self):
         self.reset()
 
     def reset(self):
         self.state = TrackState.NONE
+        self.f0 = np.nan
         self.x = np.zeros(4)  # az, el, az_dot, el_dot
         self.P = np.eye(4)
         self.log_r = np.nan                       # level-based, log10 m
@@ -161,44 +166,63 @@ class BearingTracker:
         a = self.cfg.range_smoothing
         self.log_r = lr if np.isnan(self.log_r) else (1 - a) * self.log_r + a * lr
 
-    # -- public ------------------------------------------------------------
-    def update(self, t: float, z: DoaEstimate | None, level_db: float | None = None,
-               range_obs: tuple[float, float] | None = None) -> Cue:
-        """range_obs: optional triangulated (range m, 1-sigma m) from another node."""
-        if self.state == TrackState.NONE:
-            if z is not None:
-                self._start(t, z, level_db)
-                self._update_tri(t, range_obs)
-            return self._cue(t)
+    # -- frame steps (used directly by the multi-target tracker) -----------
+    def start(self, t, z: DoaEstimate, level_db=None, range_obs=None):
+        self._start(t, z, level_db)
+        self._update_tri(t, range_obs)
 
+    def predict(self, t):
         self._predict(t)
-        hit = False
-        if z is not None:
-            y, H, S = self._innovation(z)
-            if y @ np.linalg.solve(S, y) <= self.cfg.gate_chi2:
-                K = self.P @ H.T @ np.linalg.inv(S)
-                self.x = self.x + K @ y
-                self.x[0] %= 360.0
-                self.P = (np.eye(4) - K @ H) @ self.P
-                self.t_last_hit = t
-                self._update_range(level_db)
-                hit = True
-        self._update_tri(t, range_obs if hit else None)
 
+    def distance2(self, z: DoaEstimate) -> float:
+        """Squared Mahalanobis distance of a bearing fix from the predicted track."""
+        y, _, S = self._innovation(z)
+        return float(y @ np.linalg.solve(S, y))
+
+    def correct(self, t, z: DoaEstimate, level_db=None):
+        y, H, S = self._innovation(z)
+        K = self.P @ H.T @ np.linalg.inv(S)
+        self.x = self.x + K @ y
+        self.x[0] %= 360.0
+        self.P = (np.eye(4) - K @ H) @ self.P
+        self.t_last_hit = t
+        self._update_range(level_db)
+
+    def finish(self, t, hit: bool, range_obs=None) -> bool:
+        """Close out a frame: range filter, M-of-N confirmation, coasting. False = drop me."""
+        self._update_tri(t, range_obs if hit else None)
         self.history = (self.history + [hit])[-self.cfg.confirm_n:]
         if self.state == TrackState.TENTATIVE:
             if sum(self.history) >= self.cfg.confirm_m:
                 self.state = TrackState.CONFIRMED
             elif len(self.history) >= self.cfg.confirm_n:
-                self.reset()
-                if z is not None:
-                    self._start(t, z, level_db)
+                return False
         elif t - self.t_last_hit > self.cfg.max_coast_s:
+            return False
+        else:
+            self.state = TrackState.CONFIRMED if hit else TrackState.COASTING
+        return True
+
+    # -- single-target convenience -------------------------------------------
+    def update(self, t: float, z: DoaEstimate | None, level_db: float | None = None,
+               range_obs: tuple[float, float] | None = None) -> Cue:
+        """range_obs: optional triangulated (range m, 1-sigma m) from another node."""
+        if self.state == TrackState.NONE:
+            if z is not None:
+                self.start(t, z, level_db, range_obs)
+            return self._cue(t)
+
+        self.predict(t)
+        hit = z is not None and self.distance2(z) <= self.cfg.gate_chi2
+        if hit:
+            self.correct(t, z, level_db)
+        if not self.finish(t, hit, range_obs):
             self.reset()
             if z is not None:
                 self._start(t, z, level_db)
-        else:
-            self.state = TrackState.CONFIRMED if hit else TrackState.COASTING
+        return self._cue(t)
+
+    def cue(self, t) -> Cue:
         return self._cue(t)
 
     def _cue(self, t) -> Cue:
@@ -241,4 +265,4 @@ class BearingTracker:
         ready = self.state == TrackState.CONFIRMED and cone < c.handoff_fov_deg / 2
         return Cue(t, self.state, float(az), float(el), float(vaz), float(vel), float(r),
                    float((az + gain[0] * vaz * lead_s) % 360.0), float(el + gain[1] * vel * lead_s),
-                   sigma, resid_deg, float(cone), bool(ready))
+                   sigma, resid_deg, float(cone), bool(ready), self.track_id, float(self.f0))
