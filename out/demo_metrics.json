@@ -1,0 +1,32 @@
+{
+  "single_node": {
+    "sustained_detection_range_m": 211.347,
+    "first_confirmed_range_m": 195.584,
+    "first_handoff_range_m": 173.097,
+    "raw_bearing_err_median_deg": 0.537,
+    "raw_bearing_err_p90_deg": 1.946,
+    "raw_gross_error_rate": 0.009,
+    "track_vs_physical_err_median_deg": 2.264,
+    "track_vs_physical_err_p90_deg": 6.098,
+    "handoff_containment": 0.976,
+    "range_est_err_median_pct": 29.092,
+    "compute_ms_mean": 5.005,
+    "compute_ms_p99": 17.133,
+    "real_time_factor": 1.868
+  },
+  "two_node": {
+    "sustained_detection_range_m": 211.347,
+    "first_confirmed_range_m": 195.584,
+    "first_handoff_range_m": 182.706,
+    "raw_bearing_err_median_deg": 0.537,
+    "raw_bearing_err_p90_deg": 1.946,
+    "raw_gross_error_rate": 0.009,
+    "track_vs_physical_err_median_deg": 2.243,
+    "track_vs_physical_err_p90_deg": 5.792,
+    "handoff_containment": 0.964,
+    "range_est_err_median_pct": 12.591,
+    "compute_ms_mean": 10.023,
+    "compute_ms_p99": 31.932,
+    "real_time_factor": 1.002
+  }
+}
